@@ -1,6 +1,17 @@
-package dev.tamboui.widgets;
+///usr/bin/env jbang "$0" "$@" ; exit $?
+//DEPS dev.tamboui:tamboui-core:0.2.0-SNAPSHOT
+//DEPS dev.tamboui:tamboui-widgets:0.2.0-SNAPSHOT
+//DEPS dev.tamboui:tamboui-toolkit:0.2.0-SNAPSHOT
+//DEPS dev.tamboui:tamboui-jline3-backend:0.2.0-SNAPSHOT
+//DEPS org.commonmark:commonmark:0.27.1
+//DEPS org.commonmark:commonmark-ext-gfm-tables:0.27.1
+//DEPS org.commonmark:commonmark-ext-gfm-strikethrough:0.27.1
+//DEPS org.commonmark:commonmark-ext-autolink:0.27.1
+//DEPS org.commonmark:commonmark-ext-task-list-items:0.27.1
+//SOURCES src/main/java/dev/tamboui/widgets/Markdown.java
 
 import dev.tamboui.buffer.Buffer;
+import dev.tamboui.widgets.Markdown;
 import dev.tamboui.layout.Rect;
 import dev.tamboui.style.Style;
 import dev.tamboui.terminal.Backend;

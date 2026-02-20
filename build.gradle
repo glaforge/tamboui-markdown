@@ -1,0 +1,41 @@
+plugins {
+    id 'java-library'
+    id 'eclipse'
+}
+
+group = 'dev.tamboui'
+version = '0.1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    def tambouiVersion = '0.2.0-SNAPSHOT'
+    def commonmarkVersion = '0.27.1'
+
+    implementation "dev.tamboui:tamboui-core:${tambouiVersion}"
+    implementation "dev.tamboui:tamboui-widgets:${tambouiVersion}"
+    implementation "dev.tamboui:tamboui-toolkit:${tambouiVersion}"
+    implementation "dev.tamboui:tamboui-jline3-backend:${tambouiVersion}"
+
+    implementation "org.commonmark:commonmark:${commonmarkVersion}"
+    implementation "org.commonmark:commonmark-ext-gfm-tables:${commonmarkVersion}"
+    implementation "org.commonmark:commonmark-ext-gfm-strikethrough:${commonmarkVersion}"
+    implementation "org.commonmark:commonmark-ext-autolink:${commonmarkVersion}"
+    implementation "org.commonmark:commonmark-ext-task-list-items:${commonmarkVersion}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:6.0.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:6.0.2'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

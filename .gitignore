@@ -34,3 +34,7 @@ log/
 .classpath
 .project
 .settings/
+
+# Gradle files
+.gradle/
+build/
