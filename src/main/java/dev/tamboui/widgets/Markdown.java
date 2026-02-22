@@ -17,11 +17,15 @@ import org.commonmark.ext.task.list.items.TaskListItemsExtension;
 import org.commonmark.ext.task.list.items.TaskListItemMarker;
 
 import java.util.Arrays;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Markdown implements StatefulWidget<Markdown.State> {
 
     public static class State {
         private String text;
+        private int scrollY = 0;
+        private int maxScrollY = 0;
 
         public State(String text) {
             this.text = text;
@@ -33,6 +37,35 @@ public class Markdown implements StatefulWidget<Markdown.State> {
 
         public void setText(String text) {
             this.text = text;
+        }
+
+        public int scrollY() {
+            return scrollY;
+        }
+
+        public int maxScrollY() {
+            return maxScrollY;
+        }
+
+        public void setScrollY(int scrollY) {
+            this.scrollY = Math.max(0, Math.min(scrollY, maxScrollY));
+        }
+
+        public void setMaxScrollY(int maxScrollY) {
+            this.maxScrollY = maxScrollY;
+            this.scrollY = Math.min(this.scrollY, this.maxScrollY);
+        }
+
+        public void scrollUp() {
+            setScrollY(scrollY - 1);
+        }
+
+        public void scrollDown() {
+            setScrollY(scrollY + 1);
+        }
+
+        public void scrollToBottom() {
+            setScrollY(maxScrollY);
         }
     }
 
@@ -58,8 +91,9 @@ public class Markdown implements StatefulWidget<Markdown.State> {
         }
 
         Node document = parser.parse(state.text());
-        RenderVisitor visitor = new RenderVisitor(area, buffer, baseStyle);
+        RenderVisitor visitor = new RenderVisitor(area, buffer, baseStyle, state);
         document.accept(visitor);
+        state.setMaxScrollY(Math.max(0, visitor.getTotalHeight() - area.height()));
     }
 
     private static class RenderVisitor extends AbstractVisitor {
@@ -119,12 +153,20 @@ public class Markdown implements StatefulWidget<Markdown.State> {
             return 0;
         }
 
-        public RenderVisitor(Rect area, Buffer buffer, Style baseStyle) {
+        private final State state;
+        private int totalHeight = 0;
+
+        public RenderVisitor(Rect area, Buffer buffer, Style baseStyle, State state) {
             this.area = area;
             this.buffer = buffer;
             this.currentX = area.x();
-            this.currentY = area.y();
+            this.currentY = area.y() - state.scrollY();
             this.currentStyle = baseStyle;
+            this.state = state;
+        }
+
+        public int getTotalHeight() {
+            return totalHeight;
         }
 
         @Override
@@ -190,11 +232,49 @@ public class Markdown implements StatefulWidget<Markdown.State> {
             currentStyle = prev;
         }
 
+        private static final Pattern LATEX_CMD_PATTERN = Pattern.compile("\\\\(?:begin|end)\\{[^}]*\\}|\\\\\\\\|\\\\[a-zA-Z]+|\\\\.|&");
+
+        private void printMath(String mathText, Style baseMathStyle, Style cmdStyle) {
+            Matcher m = LATEX_CMD_PATTERN.matcher(mathText);
+            int lastEnd = 0;
+            while (m.find()) {
+                if (m.start() > lastEnd) {
+                    currentStyle = baseMathStyle;
+                    printText(mathText.substring(lastEnd, m.start()));
+                }
+
+                String match = m.group();
+                if (match.startsWith("\\begin") || match.startsWith("\\end") || match.equals("\\\\") || match.equals("&")
+                        || match.equals("\\left") || match.equals("\\right") || match.equals("\\quad") || match.equals("\\qquad")) {
+                    // Hide entirely
+                } else if (match.matches("\\\\[a-zA-Z]+")) {
+                    currentStyle = cmdStyle;
+                    printText(match.substring(1));
+                } else {
+                    currentStyle = baseMathStyle;
+                    printText(match.substring(1));
+                }
+
+                lastEnd = m.end();
+            }
+            if (lastEnd < mathText.length()) {
+                currentStyle = baseMathStyle;
+                printText(mathText.substring(lastEnd));
+            }
+        }
+
         @Override
         public void visit(Code code) {
             Style prev = currentStyle;
-            currentStyle = currentStyle.fg(Color.YELLOW).bg(Color.DARK_GRAY);
-            printText(code.getLiteral());
+            String literal = code.getLiteral();
+            if (literal.length() >= 2 && literal.startsWith("$") && literal.endsWith("$")) {
+                Style mathStyle = currentStyle.fg(Color.YELLOW);
+                Style cmdStyle = currentStyle.fg(Color.GREEN);
+                printMath(literal.substring(1, literal.length() - 1), mathStyle, cmdStyle);
+            } else {
+                currentStyle = currentStyle.fg(Color.YELLOW).bg(Color.DARK_GRAY);
+                printText(literal);
+            }
             currentStyle = prev;
         }
 
@@ -464,11 +544,35 @@ public class Markdown implements StatefulWidget<Markdown.State> {
                 newLine();
             }
             Style prev = currentStyle;
-            currentStyle = currentStyle.fg(Color.YELLOW).bg(Color.DARK_GRAY);
-            printText(fencedCodeBlock.getLiteral());
+            if ("math".equals(fencedCodeBlock.getInfo())) {
+                Style mathStyle = currentStyle.fg(Color.YELLOW);
+                Style cmdStyle = currentStyle.fg(Color.GREEN);
+                String literal = fencedCodeBlock.getLiteral();
+                if (literal.endsWith("\n")) {
+                    literal = literal.substring(0, literal.length() - 1);
+                }
+
+                literal = literal.replace("\\\\", "\n").replace("\\ ", "\n");
+
+                String[] lines = literal.split("\n");
+                for (String line : lines) {
+                    String visible = line.replaceAll("\\\\(?:begin|end)\\{[^}]*\\}|\\\\\\\\|&|\\\\left|\\\\right|\\\\quad|\\\\qquad", "").trim();
+                    if (visible.isEmpty()) {
+                        continue;
+                    }
+                    currentStyle = mathStyle;
+                    printText("  ");
+                    printMath(line, mathStyle, cmdStyle);
+                    newLine();
+                }
+                newLine(); // One extra newline for spacing
+            } else {
+                currentStyle = currentStyle.fg(Color.YELLOW).bg(Color.DARK_GRAY);
+                printText(fencedCodeBlock.getLiteral());
+                newLine();
+                newLine();
+            }
             currentStyle = prev;
-            newLine();
-            newLine();
         }
 
         @Override
@@ -548,14 +652,18 @@ public class Markdown implements StatefulWidget<Markdown.State> {
         }
 
         private void printText(String text) {
-            if (currentY >= area.bottom()) {
-                return; // OOB
-            }
-
             // Split by whitespace and common punctuation, keeping the delimiters intact
             String[] words = text.split("(?<=[ \\t\\n\\r,.;:/?!-])|(?=[ \\t\\n\\r,.;:/?!-])");
             for (String word : words) {
                 if (word.isEmpty()) continue;
+
+                if (word.equals("\n")) {
+                    newLine();
+                    continue;
+                }
+                if (word.equals("\r")) {
+                    continue;
+                }
 
                 int width = CharWidth.of(word);
 
@@ -568,10 +676,6 @@ public class Markdown implements StatefulWidget<Markdown.State> {
                     }
                 }
 
-                if (currentY >= area.bottom()) {
-                    return; // OOB
-                }
-
                 int col = currentX;
                 for (char c : word.toCharArray()) {
                     String s = String.valueOf(c);
@@ -580,19 +684,22 @@ public class Markdown implements StatefulWidget<Markdown.State> {
                     if (currentX + charW > area.right()) {
                         newLine();
                         col = currentX;
-                        if (currentY >= area.bottom()) return;
                     }
 
-                    buffer.set(col, currentY, new Cell(s, currentStyle));
+                    if (currentY >= area.y() && currentY < area.bottom()) {
+                        buffer.set(col, currentY, new Cell(s, currentStyle));
+                    }
                     col += charW;
                     currentX += charW;
                 }
             }
+            totalHeight = Math.max(totalHeight, currentY + state.scrollY() - area.y() + 1);
         }
 
         private void newLine() {
             currentX = area.x();
             currentY++;
+            totalHeight = Math.max(totalHeight, currentY + state.scrollY() - area.y() + 1);
         }
     }
 }
